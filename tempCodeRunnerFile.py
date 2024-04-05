@@ -1,4 +1,3 @@
-    python monocular-camera-calibration.py --path_to_calibration_images sample-calibration-images/ \
-    --calibration_image_format JPG \
-    --chessboard_size 9 6 \
-    --output_calibration_parameters calibration-parameters/calibration_data.json
+--cam_index: Index of the camera to use (default: 0)
+--Z: Distance from the camera to the object (in cm)
+--cal_file: Path to the camera calibration file
