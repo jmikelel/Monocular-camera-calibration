@@ -57,9 +57,7 @@ def run_pipeline(args:argparse.ArgumentParser)->None:
     objpoints, imgpoints, img_size = detect_chessboard_corners(args)
 
     # Run the camera calibration process
-    mtx, dist, rvecs, tvecs = do_calibration(objpoints, 
-                                             imgpoints, 
-                                             img_size)
+    mtx, dist, rvecs, tvecs = do_calibration(objpoints, imgpoints, img_size)
 
     # Compute the calibration error in pixels
     compute_calibration_error(objpoints, 
