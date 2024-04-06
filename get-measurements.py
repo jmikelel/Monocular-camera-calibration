@@ -12,11 +12,9 @@ python get-measurements.py --cam_index 0 --Z 56 --cal_file calibration_data.json
 
 Arguments:
 --cam_index: Index of the camera to use (default: 0)
---Z: Distance from camera to object (in cm)
+--Z: Distance from the camera to the object (in cm)
 --cal_file: Path to the camera calibration file
 """
-
-selected_points = []  # Define selected_points as a global variable
 
 def undistort_image(distorted_image, calibration_data):
     """
@@ -67,36 +65,8 @@ def compute_perimeter(distances):
     """
     return sum(distances)
 
-def shutdown_on_enter(cap):
-    global selected_points
-    print("Press Enter to shutdown the program...")
-    input()
-    cap.release()
-    cv2.destroyAllWindows()
-    exit(0)
-
-def main():
-    global selected_points
-
-    # Parse command line arguments
-    parser = argparse.ArgumentParser(description="Vision-based measurement system")
-    parser.add_argument("--cam_index", type=int, default=0, help="Camera index")
-    parser.add_argument("--Z", type=float, required=True, help="Distance from camera to object (cm)")
-    parser.add_argument("--cal_file", type=str, required=True, help="Camera calibration file")
-    args = parser.parse_args()
-
-    # Load camera calibration data
-    with open(args.cal_file, "r") as f:
-        calibration_data = json.load(f)
-
-    # Initialize camera capture
-    cap = cv2.VideoCapture(args.cam_index)
-
-    # Define measurement flag
-    measuring = False
-
-    def on_mouse_click(event, x, y, flags, param):
-        nonlocal measuring
+def on_mouse_click(event, x, y, flags, param):
+        global selected_points, measuring
         if event == cv2.EVENT_LBUTTONDOWN:
             # Add point on left click
             selected_points.append((x, y))
@@ -124,11 +94,72 @@ def main():
 
                 print(f"Perimeter: {perimeter:.2f}")
 
+
+def main():
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(description="Vision-based measurement system")
+    parser.add_argument("--cam_index", type=int, default=0, help="Camera index")
+    parser.add_argument("--Z", type=float, required=True, help="Distance from camera to object (cm)")
+    parser.add_argument("--cal_file", type=str, required=True, help="Camera calibration file")
+    args = parser.parse_args()
+
+    # Load camera calibration data
+    with open(args.cal_file, "r") as f:
+        calibration_data = json.load(f)
+
+    # Initialize camera capture
+    cap = cv2.VideoCapture(args.cam_index)
+
+    # Define variables for selected points and measurement flag
+    selected_points = []
+    measuring = False
+
+    
     # Set mouse callback function
     cv2.namedWindow("Frame")
     cv2.setMouseCallback("Frame", on_mouse_click)
 
-    shutdown_on_enter(cap)
+    # Main loop
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            print("Error: Failed to capture frame")
+            break
+
+        # Undistort the frame before processing
+        undistorted_image = undistort_image(frame.copy(), calibration_data)
+
+        # Draw selected points
+        for point in selected_points:
+            cv2.circle(undistorted_image, point, 5, (0, 255, 0), -1)
+
+        cv2.imshow("Frame", undistorted_image)
+
+        key = cv2.waitKey(1) & 0xFF
+
+        # Start measuring on right click
+        if key == ord('r'):
+            measuring = True
+            selected_points = []
+            print("Start selecting points...")
+
+        # Quit program on 'q'
+        elif key == ord('q'):
+            break
+
+        # Reset points on 'c'
+        elif key == ord('c'):
+            selected_points = []
+            print("Points reset.")
+
+        if measuring:
+            cv2.putText(undistorted_image, "Measuring...", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+
+        cv2.imshow("Frame", undistorted_image)
+
+    # Release the camera and close all OpenCV windows
+    cap.release()
+    cv2.destroyAllWindows()
 
 if __name__ == "__main__":
     main()
