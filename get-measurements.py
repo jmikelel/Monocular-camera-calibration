@@ -2,19 +2,8 @@ import cv2
 import numpy as np
 import json
 import argparse
-import os
 
-"""
-Vision-based measurement system for calculating distances and perimeter based on selected points in an image.
-
-Usage:
-python get-measurements.py --cam_index 0 --Z 56 --cal_file calibration_data.json
-
-Arguments:
---cam_index: Index of the camera to use (default: 0)
---Z: Distance from the camera to the object (in cm)
---cal_file: Path to the camera calibration file
-"""
+selected_points = []
 
 def undistort_image(distorted_image, calibration_data):
     """
@@ -35,71 +24,94 @@ def undistort_image(distorted_image, calibration_data):
     undistorted_image = cv2.undistort(distorted_image, camera_matrix, distortion_coefficients)
     return undistorted_image
 
-def compute_line_segments(selected_points):
+def compute_distance(selected_points, calibration_data, real_distance_cm):
     """
-    Computes the length of each line segment formed by consecutive points.
+    Computes the distance in centimeters between two selected points on the image.
 
     Args:
         selected_points: A list of tuples representing selected points (x, y).
+        calibration_data: A dictionary containing camera calibration parameters.
+        real_distance_cm: The real distance between the selected points in centimeters.
 
     Returns:
-        A list of distances between consecutive points.
+        The distance between the selected points in centimeters.
     """
-    distances = []
-    for i in range(len(selected_points)):
-        point1 = selected_points[i]
-        point2 = selected_points[(i + 1) % len(selected_points)]
-        distance = np.linalg.norm(np.array(point1) - np.array(point2))
-        distances.append(distance)
-    return distances
+    # Calculate distance in pixels
+    distance_pixels = np.linalg.norm(np.array(selected_points[0]) - np.array(selected_points[1]))
 
-def compute_perimeter(distances):
-    """
-    Computes the perimeter by summing up the distances between consecutive points.
+    # Retrieve focal length from calibration data
+    focal_length = calibration_data["camera_matrix"][0][0]  # Assuming focal length is in pixels
 
-    Args:
-        distances: A list of distances between consecutive points.
+    # Convert distance from pixels to centimeters
+    distance_cm = (real_distance_cm * focal_length) / distance_pixels
 
-    Returns:
-        The total perimeter.
-    """
-    return sum(distances)
+    return distance_cm
 
 def on_mouse_click(event, x, y, flags, param):
-        global selected_points, measuring
-        if event == cv2.EVENT_LBUTTONDOWN:
-            # Add point on left click
-            selected_points.append((x, y))
-            print(f"Point selected: ({x}, {y})")
-        elif event == cv2.EVENT_MBUTTONDOWN:
-            # Stop selecting on middle click
-            measuring = False
-            print("Selection stopped.")
-            if len(selected_points) >= 2:
-                # Perform measurements
-                ret, frame = cap.read()
-                if not ret:
-                    print("Error: Failed to capture frame")
-                    return
+    """
+    Callback function for mouse events.
+    """
+    global selected_points
+    if event == cv2.EVENT_LBUTTONDOWN:
+        # Add point on left click
+        selected_points.append((x, y))
+        print(f"Point selected: ({x}, {y})")
+        if len(selected_points) == 2:
+            # Calculate distance when two points are selected
+            distance_cm = compute_distance(selected_points, calibration_data, real_distance_cm=10.0)
+            print(f"Distance between points: {distance_cm:.2f} cm")
+    elif event == cv2.EVENT_MBUTTONDOWN:
+        # Stop selecting on middle click
+        print("Selection stopped.")
 
-                # Undistort the frame before processing
-                undistorted_image = undistort_image(frame.copy(), calibration_data)
+def draw_lines_between_points(image, points):
+    """
+    Draws lines between consecutive points on the image.
 
-                distances = compute_line_segments(selected_points)
-                perimeter = compute_perimeter(distances)
+    Args:
+        image: The image to draw on.
+        points: A list of tuples representing selected points (x, y).
 
-                print("Distances between consecutive points:")
-                for i in range(len(distances)):
-                    print(f"- Line segment {i+1}: {distances[i]:.2f} pixels")  # Format with 2 decimal places
+    Returns:
+        The image with lines drawn between points.
+    """
+    line_thickness = 5  # Adjust thickness as desired
+    for i in range(len(points)):
+        point1 = points[i]
+        point2 = points[(i + 1) % len(points)]
+        cv2.line(image, point1, point2, (0, 255, 0), line_thickness)  # Green color
+    return image
 
-                print(f"Perimeter: {perimeter:.2f}")
+def draw_selected_points(image, points):
+    """
+    Draws selected points on the image.
 
+    Args:
+        image: The image to draw on.
+        points: A list of tuples representing selected points (x, y).
+
+    Returns:
+        The image with selected points drawn.
+    """
+    circle_radius = 5  # Adjust radius as desired
+    circle_thickness = 2  # Adjust thickness as desired
+    for point in points:
+        cv2.circle(image, point, circle_radius, (0, 255, 255), circle_thickness)  # Yellow circle
+    return image
+
+def shutdown_on_right_click(event, x, y, flags, param):
+    """
+    Callback function to close the window on right click.
+    """
+    if event == cv2.EVENT_RBUTTONDOWN:
+        cv2.destroyAllWindows()
 
 def main():
+    global selected_points, calibration_data
+
     # Parse command line arguments
     parser = argparse.ArgumentParser(description="Vision-based measurement system")
     parser.add_argument("--cam_index", type=int, default=0, help="Camera index")
-    parser.add_argument("--Z", type=float, required=True, help="Distance from camera to object (cm)")
     parser.add_argument("--cal_file", type=str, required=True, help="Camera calibration file")
     args = parser.parse_args()
 
@@ -110,52 +122,30 @@ def main():
     # Initialize camera capture
     cap = cv2.VideoCapture(args.cam_index)
 
-    # Define variables for selected points and measurement flag
-    selected_points = []
-    measuring = False
-
-    
     # Set mouse callback function
     cv2.namedWindow("Frame")
     cv2.setMouseCallback("Frame", on_mouse_click)
+    cv2.setMouseCallback("Frame", shutdown_on_right_click)
 
-    # Main loop
     while True:
         ret, frame = cap.read()
         if not ret:
             print("Error: Failed to capture frame")
             break
 
-        # Undistort the frame before processing
-        undistorted_image = undistort_image(frame.copy(), calibration_data)
+        # Draw lines between selected points
+        frame_with_lines = draw_lines_between_points(frame.copy(), selected_points)
 
         # Draw selected points
-        for point in selected_points:
-            cv2.circle(undistorted_image, point, 5, (0, 255, 0), -1)
+        frame_with_points = draw_selected_points(frame_with_lines, selected_points)
 
-        cv2.imshow("Frame", undistorted_image)
+        # Show the frame with lines and selected points
+        cv2.imshow("Frame", frame_with_points)
 
         key = cv2.waitKey(1) & 0xFF
 
-        # Start measuring on right click
-        if key == ord('r'):
-            measuring = True
-            selected_points = []
-            print("Start selecting points...")
-
-        # Quit program on 'q'
-        elif key == ord('q'):
+        if key == ord('q'):
             break
-
-        # Reset points on 'c'
-        elif key == ord('c'):
-            selected_points = []
-            print("Points reset.")
-
-        if measuring:
-            cv2.putText(undistorted_image, "Measuring...", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
-
-        cv2.imshow("Frame", undistorted_image)
 
     # Release the camera and close all OpenCV windows
     cap.release()
